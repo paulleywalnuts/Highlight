@@ -9,7 +9,7 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "args": ["-i",  "test.pdf", "-a", "Underline", "-s", "\"FRST\""],
+            "args": ["-i",  "test.pdf", "-o", "testoutput.pdf", "-a", "Highlight", "-s", "\"FA\""],
             "console": "integratedTerminal"
         }
     ]

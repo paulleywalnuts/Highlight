@@ -7,7 +7,6 @@ import re
 import fitz
 from operator import attrgetter
 
-
 def extract_info(input_file: str):
     """
     Extracts file info
@@ -32,10 +31,7 @@ def search_for_text(lines, search_str):
     Search for the search string within the document lines
     """
     for line in lines:
-        # Find all matches within one line
-        results = re.findall(search_str, line[0], re.IGNORECASE)
-        # In case multiple matches within one line
-        if results:
+        if line[1] == search_str:
             yield line
 
 def redact_matching_data(page, matched_values):
@@ -79,28 +75,29 @@ def highlight_matching_data(page, matched_values, type):
     Highlight matching values
     """
     matches_found = 0
-    # Loop throughout matching values
     for val in matched_values:
         matches_found += 1
         matching_val_areas = page.search_for(val[0])
-        # print("matching_val_area",matching_val_area)
         highlight = None
-        x0 = min(matching_val_areas, key=attrgetter('x0')).x0
-        x1 = max(matching_val_areas, key=attrgetter('x1')).x1
-        y0 = min(matching_val_areas, key=attrgetter('y0')).y0
-        y1 = max(matching_val_areas, key=attrgetter('y1')).y1
-        if type == 'Squiggly' or type == 'Underline':
-            y0 += 2
-            y1 += 2
-        matching_val_area = fitz.Rect(x0, y0, x1, y1)
-        if type == 'Squiggly':
-            highlight = page.addSquigglyAnnot(matching_val_area)
-        elif type == 'Underline':
-            highlight = page.addUnderlineAnnot(matching_val_area)
-        elif type == 'Strikeout':
-            highlight = page.addStrikeoutAnnot(matching_val_area)
-        else:
-            highlight = page.addHighlightAnnot(matching_val_area)
+        distinctLines = set(val.y0 for val in matching_val_areas)
+        for y0 in distinctLines:
+            line_areas = list(filter(lambda val: val.y0 == y0, matching_val_areas))
+            x0 = min(line_areas, key=attrgetter('x0')).x0
+            x1 = max(line_areas, key=attrgetter('x1')).x1
+            y0 = line_areas[0].y0
+            y1 = line_areas[0].y1
+            if type == 'Squiggly' or type == 'Underline':
+                y0 += 2
+                y1 += 2
+            matching_val_area = fitz.Rect(x0, y0, x1, y1)
+            if type == 'Squiggly':
+                highlight = page.addSquigglyAnnot(matching_val_area)
+            elif type == 'Underline':
+                highlight = page.addUnderlineAnnot(matching_val_area)
+            elif type == 'Strikeout':
+                highlight = page.addStrikeoutAnnot(matching_val_area)
+            else:
+                highlight = page.addHighlightAnnot(matching_val_area)
         # To change the highlight color
         # highlight.setColors({"stroke":(0,0,1),"fill":(0.75,0.8,0.95) })
         # highlight.setColors(stroke = fitz.utils.getColor('white'), fill = fitz.utils.getColor('red'))
@@ -112,24 +109,22 @@ def process_data(input_file: str, output_file: str, search_str: str, pages: Tupl
     """
     Process the pages of the PDF File
     """
-    # Open the PDF
     pdfDoc = fitz.open(input_file)
-    # Save the generated PDF to memory buffer
     output_buffer = BytesIO()
     total_matches = 0
-    # Iterate through pages
+
     for pg in range(pdfDoc.pageCount):
+
         # If required for specific pages
         if pages:
             if str(pg) not in pages:
                 continue
-        # Select the page
+
         page = pdfDoc[pg]
-        # Get Matching Data
-        # Split page by lines
+
         text = page.get_text("text")
         regexString = "((\w{1,5})-([A-Z]{2})\W*((?:\d*:)?\d{2}.\d{2}|NT)\W*(\d+)\W*([A-Z]\w*,\W[A-Z]\w*\W[A-Z]?)\W*(\d))"
-        page_lines = page_lines = re.findall(regexString, text)
+        page_lines = re.findall(regexString, text)
         matched_values = search_for_text(page_lines, search_str)
         if matched_values:
             if action == 'Redact':
