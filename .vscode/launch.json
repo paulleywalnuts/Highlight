@@ -9,7 +9,14 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "args": ["-i",  "test.pdf", "-o", "testoutput.pdf", "-a", "Highlight", "-s", "\"FA\""],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python: Current File with Args",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "args": ["-i",  "test.pdf", "-a", "Highlight"],
             "console": "integratedTerminal"
         }
     ]
