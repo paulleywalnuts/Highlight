@@ -1,4 +1,3 @@
-from time import sleep
 from typing import Tuple
 from io import BytesIO
 import os
@@ -11,14 +10,6 @@ from tkinter import filedialog
 from termcolor import colored
 from ctypes import windll
 windll.shcore.SetProcessDpiAwareness(1)
-
-
-def search_for_text(lines, search_str):
-    """
-    Search for the search string within the document lines
-    """
-
-    return [line for line in lines if line[1] == search_str]
 
 
 def annotate_matching_data(page, matched_values, action):
@@ -139,7 +130,7 @@ def highlight_team(input_file: str, team_name: str, pages: Tuple = None, action:
         text = page.get_text("text")
         regexString = r"((\w{1,5})-([A-Z]{2})\W*((?:\d*:)?\d{2}.\d{2}|NT)\W*(\d+)\W*([A-Z]\w*,\W[A-Z]\w*\W[A-Z]?)\W*(\d))"
         page_lines = re.findall(regexString, text)
-        matched_values = search_for_text(page_lines, team_name)
+        matched_values = [line for line in page_lines if line[1] == team_name]
 
         if matched_values:
             matches_found = annotate_matching_data(page, matched_values, action)
