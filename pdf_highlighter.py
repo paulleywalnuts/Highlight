@@ -85,27 +85,31 @@ def combine_area(line_areas):
     return Rect(x0, y0, x1, y1)
 
 
-def process_data(input_file: str, teams: set = None, pages: Tuple = None, action: str = 'Highlight'):
+def process_data(input_files: str, teams: set = None, pages: Tuple = None, action: str = 'Highlight'):
     """
     Process the pages of the PDF File
     """
 
-    if input_file is None:
-        input_file = filedialog.askopenfilename()
+    if input_files is None:
+        input_files = filedialog.askopenfilenames()
 
-    if input_file is '':
+    if input_files is '':
         exit()
 
-    with pdf_open(input_file) as pdf_input_file:
+    for input_file in input_files:
 
-        if not teams:
-            teams = get_teams(pdf_input_file)
-        
-        teams = list(teams)
-        teams.sort()
+        print(f"For File:", colored(f"{os.path.basename(os.path.splitext(input_file)[0])}", "yellow"))
 
-        for team in teams:
-            highlight_team(input_file, team, pages, action)
+        with pdf_open(input_file) as pdf_input_file:
+
+            if not teams:
+                teams = get_teams(pdf_input_file)
+            
+            teams = list(teams)
+            teams.sort()
+
+            for team in teams:
+                highlight_team(input_file, team, pages, action)
 
 
 def highlight_team(input_file: str, team_name: str, pages: Tuple = None, action: str = 'Highlight'):
@@ -142,7 +146,12 @@ def highlight_team(input_file: str, team_name: str, pages: Tuple = None, action:
     pdf_input_file.save(output_buffer)
 
     # Save the output buffer to the output file
-    with open(f"{os.path.splitext(input_file)[0]}-{team_name}{os.path.splitext(input_file)[1]}", mode='wb') as file:
+    output_directory = f"{os.path.dirname(input_file)}/Highlighted/{team_name}"
+    if not os.path.isdir(output_directory):
+        os.makedirs(output_directory)
+    output_filename = f"{os.path.basename(os.path.splitext(input_file)[0])} - {team_name}{os.path.splitext(input_file)[1]}"
+    output_path = output_directory + "/" + output_filename
+    with open(output_path, mode='wb') as file:
         file.write(output_buffer.getbuffer())
 
 
@@ -208,7 +217,7 @@ def process_file(**kwargs):
         # Remove the Highlights except Redactions
         remove_highlight(input_file=input_file, pages=pages)
     else:
-        process_data(input_file=input_file, teams=teams,
+        process_data(input_files=input_file, teams=teams,
                      pages=pages, action=action)
 
 
