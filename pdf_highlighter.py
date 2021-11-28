@@ -2,223 +2,351 @@ from typing import Tuple
 from io import BytesIO
 import os
 import argparse
-import re
+from regex import findall, fullmatch
 from operator import attrgetter
 from fitz import Rect
 from fitz import open as pdf_open
 from tkinter import filedialog
+import regex
 from termcolor import colored
 from ctypes import windll
 windll.shcore.SetProcessDpiAwareness(1)
 
 
-def annotate_matching_data(page, matched_values, action):
-    """
-    Annotate matching values
-    """
-    matches_found = 0
-    for val in matched_values:
-        matches_found += 1
-        matching_val_areas = page.search_for(val[0])
-        distinct_line_y_values = set(val.y0 for val in matching_val_areas)
-        for y0 in distinct_line_y_values:
-            line_areas = list(
-                filter(lambda val: val.y0 == y0, matching_val_areas))
-            matching_val_area = combine_area(line_areas)
-            annotate_area(page, matching_val_area, action)
-    return matches_found  
+class HeatSheet:
+
+    def __init__(self, file_name) -> None:
+        self.open(file_name)
+
+    @property
+    def teams(self):
+        """All team codes in the heat sheat."""
+
+        teams = {swim.team for swim in self.individual_swims}
+        teams = teams | {swim.team for swim in self.relay_swims}
+
+        teams = [team.code for team in teams]
+        teams.sort()
+
+        return teams
+
+    @property
+    def cuts(self):
+        """All cut codes in the heat sheat."""
+        
+        cuts = set()
+
+        for page in self.pdf_data:
+            text = page.get_text("text")
+            cuts = cuts | HeatSheet.Cut.findall(text)
+
+        cuts = list()
+        cuts.sort()
+
+        return cuts
+
+    @property
+    def individual_swims(self):
+        """All individual swims in the heat sheet."""
+
+        individual_swims = list()
+
+        for page in self.pdf_data:
+            text = page.get_text("text")
+            individual_swims = individual_swims + HeatSheet.IndividualSwim.findall(text, self.cuts)
+        
+        return individual_swims
+
+    @property
+    def relay_swims(self):
+        """All relay swims in the heat sheet."""
+
+        relay_swims = list()
+
+        for page in self.pdf_data:
+            text = page.get_text("text")
+            relay_swims = relay_swims + HeatSheet.RelaySwim.findall(text, self.cuts)
+
+        return relay_swims
+
+    def open(self, file_name) -> None:
+        self.file_name = file_name
+        self.pdf_data = pdf_open(file_name)    
 
 
-def annotate_area(page, area, action):
-    """
-    Annotates area on page
-    """
+    def save_as(self, save_path) -> None:
+        output_buffer = BytesIO()
+        self.pdf_data.save(output_buffer)
+        with open(save_path, mode='wb') as file:
+            file.write(output_buffer.getbuffer())
+    
 
-    # Adjust the selection vertically to not overlap text
-    if action in ('Squiggly', 'Underline'):
-        area.y0 += 2
-        area.y1 += 2
+    def highlight_team(self, team_name: str, pages: Tuple = None, action: str = 'Highlight') -> None:
+        total_matches = 0
 
-    # Apply annotation
-    if action == 'Squiggly':
-        page.add_squiggly_annot(area)
-    elif action == 'Underline':
-        page.add_underline_annot(area)
-    elif action == 'Strikeout':
-        page.add_strikeout_annot(area)
-    elif action == 'Frame':
-        page.add_rect_annot(area)
-    else:
-        page.add_highlight_annot(area)
+        for pg in range(self.pdf_data.pageCount):
 
-    # To change the highlight color
-    # highlight.setColors({"stroke":(0,0,1),"fill":(0.75,0.8,0.95) })
-    # highlight.setColors(stroke = fitz.utils.getColor('white'), fill = fitz.utils.getColor('red'))
-    # highlight.setColors(colors= fitz.utils.getColor('red'))
+            # If required for specific pages
+            if pages:
+                if str(pg) not in pages:
+                    continue
 
+            page = self.pdf_data[pg]
 
-def redact_matching_data(page, matched_values):
-    """
-    Redacts matching values
-    """
-    matches_found = 0
-    # Loop throughout matching values
-    for val in matched_values:
-        matches_found += 1
-        matching_val_area = page.search_for(val)
-        # Redact matching values
-        [page.addRedactAnnot(area, text=" ", fill=(0, 0, 0))
-         for area in matching_val_area]
-    # Apply the redaction
-    page.apply_redactions()
-    return matches_found
-
-
-def combine_area(line_areas):
-    """
-    Combine highlight rectangles into single object
-    """
-    x0 = min(line_areas, key=attrgetter('x0')).x0
-    x1 = max(line_areas, key=attrgetter('x1')).x1
-    y0 = line_areas[0].y0
-    y1 = line_areas[0].y1
-    return Rect(x0, y0, x1, y1)
-
-
-def process_data(input_files: str, teams: set = None, pages: Tuple = None, action: str = 'Highlight'):
-    """
-    Process the pages of the PDF File
-    """
-
-    if input_files is None:
-        input_files = filedialog.askopenfilenames()
-
-    if input_files is '':
-        exit()
-
-    for input_file in input_files:
-
-        print(f"For File:", colored(f"{os.path.basename(os.path.splitext(input_file)[0])}", "yellow"))
-
-        with pdf_open(input_file) as pdf_input_file:
-
-            if not teams:
-                teams = get_teams(pdf_input_file)
+            text = page.get_text("text")
             
-            teams = list(teams)
-            teams.sort()
+            individual_swims = HeatSheet.IndividualSwim.findall(text, self.cuts)
+            relay_swims = HeatSheet.RelaySwim.findall(text, self.cuts)
 
-            for team in teams:
-                highlight_team(input_file, team, pages, action)
+            matched_swims = [f"{swim}" for swim in relay_swims + individual_swims if swim.team.code == team_name]
+
+            if matched_swims:
+                matches_found = self.__annotate_matching_data(page, matched_swims, action)
+                total_matches += matches_found
+
+        print(f"{total_matches:3} Swims Highlighted for Team:", colored(f"{team_name}", "green"))
+
+        # Create output directory if it does not exist
+        output_directory = f"{os.path.dirname(self.file_name)}/Highlighted/{team_name}"
+        if not os.path.isdir(output_directory):
+            os.makedirs(output_directory)
+
+        # Create output file path
+        output_filename = f"{os.path.basename(os.path.splitext(self.file_name)[0])} - {team_name}{os.path.splitext(self.file_name)[1]}"
+        output_path = output_directory + "/" + output_filename
+
+        # Save and reload the unhighlighted file
+        self.save_as(output_path)
+        self.open(self.file_name)
 
 
-def highlight_team(input_file: str, team_name: str, pages: Tuple = None, action: str = 'Highlight'):
-    """
-    Highlights file for given team
-    """
+    def __annotate_matching_data(self, page, matched_values, action):
+        """
+        Annotate matching values
+        """
+        matches_found = 0
+        for val in matched_values:
+            matches_found += 1
+            matching_val_areas = page.search_for(val)
+            distinct_line_y_values = set(val.y0 for val in matching_val_areas)
+            for y0 in distinct_line_y_values:
+                line_areas = list(
+                    filter(lambda val: val.y0 == y0, matching_val_areas))
+                matching_val_area = self.__combine_area(line_areas)
+                self.__annotate_area(page, matching_val_area, action)
+        return matches_found      
+
+
+    def __combine_area(self, line_areas):
+        """
+        Combine highlight rectangles into single object
+        """
+        x0 = min(line_areas, key=attrgetter('x0')).x0
+        x1 = max(line_areas, key=attrgetter('x1')).x1
+        y0 = line_areas[0].y0
+        y1 = line_areas[0].y1
+        return Rect(x0, y0, x1, y1)    
+
+
+    def __annotate_area(self, page, area, action):
+        """
+        Annotates area on page
+        """
+
+        # Adjust the selection vertically to not overlap text
+        if action in ('Squiggly', 'Underline'):
+            area.y0 += 2
+            area.y1 += 2
+
+        # Apply annotation
+        if action == 'Squiggly':
+            page.add_squiggly_annot(area)
+        elif action == 'Underline':
+            page.add_underline_annot(area)
+        elif action == 'Strikeout':
+            page.add_strikeout_annot(area)
+        elif action == 'Frame':
+            page.add_rect_annot(area)
+        else:
+            page.add_highlight_annot(area)
+
+        # To change the highlight color
+        # highlight.setColors({"stroke":(0,0,1),"fill":(0.75,0.8,0.95) })
+        # highlight.setColors(stroke = fitz.utils.getColor('white'), fill = fitz.utils.getColor('red'))
+        # highlight.setColors(colors= fitz.utils.getColor('red'))
+
+
+    class IndividualSwim():
+
+        age = r" \d+"                               # Age of athlete
+        name = r"[A-Z]\w*,\s[A-Z]\w*\s[A-Z]?"       # Swimmer name in format Last, First MI
+        time = r"(?:(?:(?:\d*:)?\d{2}\.\d{2})|NT)"
+        team = r"\w{1,5}(?=-)"
+        lsc = r"(?<=-)[A-Z]{2}"
+        team_code = f"{team}-{lsc}"
+        lane = f"(?<={name}\n)[1-9]"
+
+        individual_swim = f"{team_code}\n{time}\n{age}\n{name}\n{lane}\n"
+
+        def __init__(self, team, swimmer, age, time, lane) -> None:
+            self.team = team
+            self.swimmer = swimmer
+            self.age = age
+            self.time = time
+            self.lane = lane
+
+        def __str__(self) -> str:
+            return f"{self.team}\n{self.time}\n{self.age}\n{self.swimmer}\n{self.lane}\n"
+
+        @classmethod
+        def from_string(cls, string, cuts):
+
+            individual_swim = cls.individual_swim
+            if cuts:
+                cut_codes = "|".join(cuts)
+                individual_swim = f"{individual_swim}(?:{cut_codes})?\n?"
+
+            if not fullmatch(individual_swim, string):
+                raise ValueError("String not formatted properly")
+
+            team = HeatSheet.Team.from_string(findall(cls.team_code, string)[0])
+            swimmer = findall(cls.name, string)[0]
+            age = findall(cls.age, string)[0]
+            time = findall(cls.time, string)[0]
+            lane = findall(cls.lane, string)[0]
+
+            return cls(team, swimmer, age, time, lane)
+
+        @classmethod
+        def findall(cls, text, cuts):
+
+            individual_swim = cls.individual_swim
+            if cuts:
+                cut_codes = "|".join(cuts)
+                individual_swim = f"{individual_swim}(?:{cut_codes})?\n?"
+
+            return [HeatSheet.IndividualSwim.from_string(swim, cuts) for swim in findall(individual_swim, text)]
+
     
-    pdf_input_file = pdf_open(input_file)
+    class RelaySwim():
 
-    output_buffer = BytesIO()
-    total_matches = 0
+        relay_letter = r"[A-Z]"                     # Relay letter designator, ie: A, B, C
+        time = r"(?:(?:(?:\d*:)?\d{2}\.\d{2})|NT)"
+        team = r"\w{1,5}(?=-)"
+        lsc = r"(?<=-)[A-Z]{2}"
+        team_code = f"{team}-{lsc}"
+        lane = f"(?<={team_code}\n)[1-9]"
 
-    for pg in range(pdf_input_file.pageCount):
+        relay_swim = f"{relay_letter}\n{time}\n{team_code}\n{lane}\n"
 
-        # If required for specific pages
-        if pages:
-            if str(pg) not in pages:
-                continue
+        def __init__(self, team, letter, time, lane) -> None:
+            self.team = team
+            self.letter = letter
+            self.time = time
+            self.lane = lane
 
-        page = pdf_input_file[pg]
+        def __str__(self) -> str:
+            return f"{self.letter}\n{self.time}\n{self.team}\n{self.lane}\n"
 
-        text = page.get_text("text")
-        regexString = r"((\w{1,5})-([A-Z]{2})\W*((?:\d*:)?\d{2}.\d{2}|NT)\W*(\d+)\W*([A-Z]\w*,\W[A-Z]\w*\W[A-Z]?)\W*(\d))"
-        page_lines = re.findall(regexString, text)
-        matched_values = [line for line in page_lines if line[1] == team_name]
+        @classmethod
+        def from_string(cls, string, cuts):
 
-        if matched_values:
-            matches_found = annotate_matching_data(page, matched_values, action)
-            total_matches += matches_found
+            relay_swim = cls.relay_swim
+            if cuts:
+                cut_codes = "|".join(cuts)
+                relay_swim = f"{relay_swim}(?:{cut_codes})?\n?"
 
-    print(f"{total_matches:3} Swims Highlighted for Team:", colored(f"{team_name}", "green"))
+            if not fullmatch(relay_swim, string):
+                raise ValueError("String not formatted properly")
 
-    # Save to output
-    pdf_input_file.save(output_buffer)
+            team = HeatSheet.Team.from_string(findall(cls.team_code, string)[0])
+            letter = findall(cls.relay_letter, string)[0]
+            time = findall(cls.time, string)[0]
+            lane = findall(cls.lane, string)[0]
 
-    # Save the output buffer to the output file
-    output_directory = f"{os.path.dirname(input_file)}/Highlighted/{team_name}"
-    if not os.path.isdir(output_directory):
-        os.makedirs(output_directory)
-    output_filename = f"{os.path.basename(os.path.splitext(input_file)[0])} - {team_name}{os.path.splitext(input_file)[1]}"
-    output_path = output_directory + "/" + output_filename
-    with open(output_path, mode='wb') as file:
-        file.write(output_buffer.getbuffer())
+            return cls(team, letter, time, lane)
 
+        @classmethod
+        def findall(cls, text, cuts):
 
-def get_teams(pages):
-    """
-    Pull all team code values from the heat sheet document
-    """
-    swimmer_line_regex_string = r"((\w{1,5})-([A-Z]{2})\W*((?:\d*:)?\d{2}.\d{2}|NT)\W*(\d+)\W*([A-Z]\w*,\W[A-Z]\w*\W[A-Z]?)\W*(\d))"
-    teams = set()
-    for page in pages:
-        text = page.get_text("text")
-        swimmer_lines = re.findall(swimmer_line_regex_string, text)
-        teams = teams | {line[1] for line in swimmer_lines}
-    return teams
+            relay_swim = cls.relay_swim
+            if cuts:
+                cut_codes = "|".join(cuts)
+                relay_swim = f"{relay_swim}(?:{cut_codes})?\n?"
+
+            return [HeatSheet.RelaySwim.from_string(swim, cuts) for swim in findall(relay_swim, text)]
 
 
-def remove_highlight(input_file: str, output_file: str, pages: Tuple = None):
-    """
-    Remove all non-redaction highlights from file
-    """
-    
-    # Initialize files in memory
-    pdfDoc = pdf_open(input_file)
-    output_buffer = BytesIO()
-    annot_found = 0
+    class Team():
+
+        def __init__(self, code, lsc) -> None:
+            self.code = code
+            self.lsc = lsc
+
+        def __str__(self) -> str:
+            return f"{self.code}-{self.lsc}"
+
+        def __repr__(self) -> str:
+            return f"{self}"
+
+        def __eq__(self, other) -> bool:
+            return self.code == other.code and self.lsc == other.lsc
+
+        def __hash__(self) -> int:
+            return hash(repr(self))
+
+        @classmethod
+        def from_string(cls, string):
+
+            team = r"\w{1,5}(?=-)"
+            lsc = r"(?<=-)[A-Z]{2}"
+
+            team_code = f"{team}-{lsc}"
+
+            if not fullmatch(team_code, string):
+                raise ValueError("String not formatted properly")
+
+            code = findall(team, string)[0]
+            lsc = findall(lsc, string)[0]
+            return cls(code, lsc)
 
 
-    for pg in range(pdfDoc.pageCount):
+    class Cut():
 
-        # If required for specific pages
-        if pages:
-            if str(pg) not in pages:
-                continue
+        event_label = r"#\d+.*"                     # Event number and name
+        event_sponsor = r"Sponsor:.*"               # Event sponsor marking
+        cut_code = r"[A-Z]+"                        # Cut code, ie: DIV, AGS, SECT, JR
+        cut_code_description = r"\s.*"              # Cut code description
+        time = r"(?:(?:(?:\d*:)?\d{2}\.\d{2})|NT)"
 
-        # Select the page
-        page = pdfDoc[pg]
-        annot = page.firstAnnot
-        while annot:
-            annot_found += 1
-            page.deleteAnnot(annot)
-            annot = annot.next
-    if annot_found >= 0:
-        print(f"Annotation(s) Found In The Input File: {input_file}")
-    # Save to output
-    pdfDoc.save(output_buffer)
-    pdfDoc.close()
-    # Save the output buffer to the output file
-    with open(output_file, mode='wb') as file:
-        file.write(output_buffer.getbuffer())
+        event_header = f"{event_label}\n(?:{event_sponsor}\n)?(?:{cut_code}(?:{cut_code_description})?\n(?:{time})\n)*"
+        cut = f"{cut_code}(?:{cut_code_description})?\n{time}\n"
 
+        def __init__(self, code, time_string) -> None:
+            self.code = code
+            self.time_string = time_string
 
-def process_file(**kwargs):
-    """
-    To process one single file
-    Redact, Frame, Highlight... one PDF File
-    Remove Highlights from a single PDF File
-    """
-    input_file = kwargs.get('input_path')
-    teams = kwargs.get('teams')
-    pages = kwargs.get('pages')
-    action = kwargs.get('action')
-    if action == "Remove":
-        # Remove the Highlights except Redactions
-        remove_highlight(input_file=input_file, pages=pages)
-    else:
-        process_data(input_files=input_file, teams=teams,
-                     pages=pages, action=action)
+        @classmethod
+        def from_string(cls, string):
+
+            if not fullmatch(cls.cut, string):
+                raise ValueError("String not formatted properly")
+
+            code = findall(cls.cut_code, string)[0]
+            time_string = findall(cls.time, string)[0]
+            return cls(code, time_string)
+
+        @classmethod
+        def findall(cls, text):
+
+            cuts = set()
+
+            event_headers = findall(cls.event_header, text)
+            for event_header in event_headers:
+                cut_times = findall(cls.cut, event_header)
+                cuts = cuts | {HeatSheet.Cut.from_string(cut_time).code for cut_time in cut_times}
+
+            return cuts
 
 
 def is_valid_path(path):
@@ -258,6 +386,34 @@ def parse_args():
     return args
 
 
+def main():
+
+    args = parse_args()
+
+    input_files = args["input_path"]
+    pages = args["pages"]
+    action = args["action"]
+    teams = None
+
+    if input_files is None:
+        input_files = filedialog.askopenfilenames()
+
+    if input_files == '':
+        exit()
+
+    # for input_file in input_files:
+    input_file = input_files
+        
+    print(f"For File:", colored(f"{os.path.basename(os.path.splitext(input_file)[0])}", "yellow"))
+
+    heat_sheet = HeatSheet(input_file)
+
+    if not teams:
+        teams = heat_sheet.teams
+
+    for team in teams:
+        heat_sheet.highlight_team(team, pages, action)
+
+
 if __name__ == '__main__':
-    
-    process_file(**parse_args())
+    main()

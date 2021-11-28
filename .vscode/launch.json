@@ -16,7 +16,7 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "args": ["-i",  "test.pdf", "-a", "Highlight"],
+            "args": ["-i",  "C:/Users/cmoth/Downloads/Heat Sheet Test/test.pdf"],
             "console": "integratedTerminal"
         }
     ]
