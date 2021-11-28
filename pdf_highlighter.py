@@ -7,7 +7,6 @@ from operator import attrgetter
 from fitz import Rect
 from fitz import open as pdf_open
 from tkinter import filedialog
-import regex
 from termcolor import colored
 from ctypes import windll
 windll.shcore.SetProcessDpiAwareness(1)
@@ -16,11 +15,15 @@ windll.shcore.SetProcessDpiAwareness(1)
 class HeatSheet:
 
     def __init__(self, file_name) -> None:
+        self.file_name = None
         self.open(file_name)
 
     @property
     def teams(self):
         """All team codes in the heat sheat."""
+
+        if self.__teams:
+            return self.__teams
 
         teams = {swim.team for swim in self.individual_swims}
         teams = teams | {swim.team for swim in self.relay_swims}
@@ -28,58 +31,76 @@ class HeatSheet:
         teams = [team.code for team in teams]
         teams.sort()
 
-        return teams
+        self.__teams = teams
+        return self.__teams
 
     @property
     def cuts(self):
         """All cut codes in the heat sheat."""
-        
+
+        if self.__cuts:
+            return self.__cuts
+
         cuts = set()
 
         for page in self.pdf_data:
             text = page.get_text("text")
             cuts = cuts | HeatSheet.Cut.findall(text)
 
-        cuts = list()
+        cuts = list(cuts)
         cuts.sort()
 
-        return cuts
+        self.__cuts = cuts
+        return self.__cuts
 
     @property
     def individual_swims(self):
         """All individual swims in the heat sheet."""
 
+        if self.__ind:
+            return self.__ind
+
         individual_swims = list()
 
         for page in self.pdf_data:
             text = page.get_text("text")
-            individual_swims = individual_swims + HeatSheet.IndividualSwim.findall(text, self.cuts)
-        
-        return individual_swims
+            individual_swims = individual_swims + \
+                HeatSheet.IndividualSwim.findall(text, self.cuts)
+
+        self.__ind = individual_swims
+        return self.__ind
 
     @property
     def relay_swims(self):
         """All relay swims in the heat sheet."""
 
+        if self.__rel:
+            return self.__rel
+
         relay_swims = list()
 
         for page in self.pdf_data:
             text = page.get_text("text")
-            relay_swims = relay_swims + HeatSheet.RelaySwim.findall(text, self.cuts)
+            relay_swims = relay_swims + \
+                HeatSheet.RelaySwim.findall(text, self.cuts)
 
-        return relay_swims
+        self.__rel = relay_swims
+        return self.__rel
 
     def open(self, file_name) -> None:
-        self.file_name = file_name
-        self.pdf_data = pdf_open(file_name)    
-
+        if self.file_name != file_name:
+            self.file_name = file_name
+            self.__teams = None
+            self.__cuts = None
+            self.__ind = None
+            self.__rel = None
+        self.pdf_data = pdf_open(file_name)
 
     def save_as(self, save_path) -> None:
         output_buffer = BytesIO()
         self.pdf_data.save(output_buffer)
         with open(save_path, mode='wb') as file:
             file.write(output_buffer.getbuffer())
-    
 
     def highlight_team(self, team_name: str, pages: Tuple = None, action: str = 'Highlight') -> None:
         total_matches = 0
@@ -94,17 +115,21 @@ class HeatSheet:
             page = self.pdf_data[pg]
 
             text = page.get_text("text")
-            
-            individual_swims = HeatSheet.IndividualSwim.findall(text, self.cuts)
+
+            individual_swims = HeatSheet.IndividualSwim.findall(
+                text, self.cuts)
             relay_swims = HeatSheet.RelaySwim.findall(text, self.cuts)
 
-            matched_swims = [f"{swim}" for swim in relay_swims + individual_swims if swim.team.code == team_name]
+            matched_swims = [f"{swim}" for swim in relay_swims +
+                             individual_swims if swim.team.code == team_name]
 
             if matched_swims:
-                matches_found = self.__annotate_matching_data(page, matched_swims, action)
+                matches_found = self.__annotate_matching_data(
+                    page, matched_swims, action)
                 total_matches += matches_found
 
-        print(f"{total_matches:3} Swims Highlighted for Team:", colored(f"{team_name}", "green"))
+        print(f"{total_matches:3} Swims Highlighted for Team:",
+              colored(f"{team_name}", "green"))
 
         # Create output directory if it does not exist
         output_directory = f"{os.path.dirname(self.file_name)}/Highlighted/{team_name}"
@@ -118,7 +143,6 @@ class HeatSheet:
         # Save and reload the unhighlighted file
         self.save_as(output_path)
         self.open(self.file_name)
-
 
     def __annotate_matching_data(self, page, matched_values, action):
         """
@@ -134,8 +158,7 @@ class HeatSheet:
                     filter(lambda val: val.y0 == y0, matching_val_areas))
                 matching_val_area = self.__combine_area(line_areas)
                 self.__annotate_area(page, matching_val_area, action)
-        return matches_found      
-
+        return matches_found
 
     def __combine_area(self, line_areas):
         """
@@ -145,8 +168,7 @@ class HeatSheet:
         x1 = max(line_areas, key=attrgetter('x1')).x1
         y0 = line_areas[0].y0
         y1 = line_areas[0].y1
-        return Rect(x0, y0, x1, y1)    
-
+        return Rect(x0, y0, x1, y1)
 
     def __annotate_area(self, page, area, action):
         """
@@ -175,11 +197,10 @@ class HeatSheet:
         # highlight.setColors(stroke = fitz.utils.getColor('white'), fill = fitz.utils.getColor('red'))
         # highlight.setColors(colors= fitz.utils.getColor('red'))
 
-
     class IndividualSwim():
 
-        age = r" \d+"                               # Age of athlete
-        name = r"[A-Z]\w*,\s[A-Z]\w*\s[A-Z]?"       # Swimmer name in format Last, First MI
+        age = r" \d+"
+        name = r"[A-Z]\w*,\s[A-Z]\w*\s[A-Z]?"
         time = r"(?:(?:(?:\d*:)?\d{2}\.\d{2})|NT)"
         team = r"\w{1,5}(?=-)"
         lsc = r"(?<=-)[A-Z]{2}"
@@ -188,15 +209,16 @@ class HeatSheet:
 
         individual_swim = f"{team_code}\n{time}\n{age}\n{name}\n{lane}\n"
 
-        def __init__(self, team, swimmer, age, time, lane) -> None:
+        def __init__(self, team, swimmer, age, time, lane, cut_code) -> None:
             self.team = team
             self.swimmer = swimmer
             self.age = age
             self.time = time
             self.lane = lane
+            self.cut_code = cut_code
 
         def __str__(self) -> str:
-            return f"{self.team}\n{self.time}\n{self.age}\n{self.swimmer}\n{self.lane}\n"
+            return f"{self.team}\n{self.time}\n{self.age}\n{self.swimmer}\n{self.lane}\n" + (f"{self.cut_code}\n" if self.cut_code else "")
 
         @classmethod
         def from_string(cls, string, cuts):
@@ -209,13 +231,17 @@ class HeatSheet:
             if not fullmatch(individual_swim, string):
                 raise ValueError("String not formatted properly")
 
-            team = HeatSheet.Team.from_string(findall(cls.team_code, string)[0])
+            team = HeatSheet.Team.from_string(
+                findall(cls.team_code, string)[0])
             swimmer = findall(cls.name, string)[0]
             age = findall(cls.age, string)[0]
             time = findall(cls.time, string)[0]
             lane = findall(cls.lane, string)[0]
+            cut_code = findall(cut_codes, string)
+            if cut_code:
+                cut_code = cut_code[0]
 
-            return cls(team, swimmer, age, time, lane)
+            return cls(team, swimmer, age, time, lane, cut_code)
 
         @classmethod
         def findall(cls, text, cuts):
@@ -227,10 +253,9 @@ class HeatSheet:
 
             return [HeatSheet.IndividualSwim.from_string(swim, cuts) for swim in findall(individual_swim, text)]
 
-    
     class RelaySwim():
 
-        relay_letter = r"[A-Z]"                     # Relay letter designator, ie: A, B, C
+        relay_letter = r"[A-Z]"
         time = r"(?:(?:(?:\d*:)?\d{2}\.\d{2})|NT)"
         team = r"\w{1,5}(?=-)"
         lsc = r"(?<=-)[A-Z]{2}"
@@ -239,14 +264,15 @@ class HeatSheet:
 
         relay_swim = f"{relay_letter}\n{time}\n{team_code}\n{lane}\n"
 
-        def __init__(self, team, letter, time, lane) -> None:
+        def __init__(self, team, letter, time, lane, cut_code) -> None:
             self.team = team
             self.letter = letter
             self.time = time
             self.lane = lane
+            self.cut_code = cut_code
 
         def __str__(self) -> str:
-            return f"{self.letter}\n{self.time}\n{self.team}\n{self.lane}\n"
+            return f"{self.letter}\n{self.time}\n{self.team}\n{self.lane}\n" + (f"{self.cut_code}\n" if self.cut_code else "")
 
         @classmethod
         def from_string(cls, string, cuts):
@@ -259,12 +285,16 @@ class HeatSheet:
             if not fullmatch(relay_swim, string):
                 raise ValueError("String not formatted properly")
 
-            team = HeatSheet.Team.from_string(findall(cls.team_code, string)[0])
+            team = HeatSheet.Team.from_string(
+                findall(cls.team_code, string)[0])
             letter = findall(cls.relay_letter, string)[0]
             time = findall(cls.time, string)[0]
             lane = findall(cls.lane, string)[0]
+            cut_code = findall(cut_codes, string)
+            if cut_code:
+                cut_code = cut_code[0]
 
-            return cls(team, letter, time, lane)
+            return cls(team, letter, time, lane, cut_code)
 
         @classmethod
         def findall(cls, text, cuts):
@@ -275,7 +305,6 @@ class HeatSheet:
                 relay_swim = f"{relay_swim}(?:{cut_codes})?\n?"
 
             return [HeatSheet.RelaySwim.from_string(swim, cuts) for swim in findall(relay_swim, text)]
-
 
     class Team():
 
@@ -310,13 +339,12 @@ class HeatSheet:
             lsc = findall(lsc, string)[0]
             return cls(code, lsc)
 
-
     class Cut():
 
-        event_label = r"#\d+.*"                     # Event number and name
-        event_sponsor = r"Sponsor:.*"               # Event sponsor marking
-        cut_code = r"[A-Z]+"                        # Cut code, ie: DIV, AGS, SECT, JR
-        cut_code_description = r"\s.*"              # Cut code description
+        event_label = r"#\d+.*"
+        event_sponsor = r"Sponsor:.*"
+        cut_code = r"[A-Z]+"
+        cut_code_description = r"\s.*"
         time = r"(?:(?:(?:\d*:)?\d{2}\.\d{2})|NT)"
 
         event_header = f"{event_label}\n(?:{event_sponsor}\n)?(?:{cut_code}(?:{cut_code_description})?\n(?:{time})\n)*"
@@ -344,7 +372,8 @@ class HeatSheet:
             event_headers = findall(cls.event_header, text)
             for event_header in event_headers:
                 cut_times = findall(cls.cut, event_header)
-                cuts = cuts | {HeatSheet.Cut.from_string(cut_time).code for cut_time in cut_times}
+                cuts = cuts | {HeatSheet.Cut.from_string(
+                    cut_time).code for cut_time in cut_times}
 
             return cuts
 
@@ -365,7 +394,7 @@ def is_valid_path(path):
 
 def parse_args():
     """Get user command line parameters"""
-    
+
     parser = argparse.ArgumentParser(description="Available Options")
 
     parser.add_argument('-i', '--input_path', dest='input_path', type=is_valid_path,
@@ -374,8 +403,8 @@ def parse_args():
                         default='Highlight', help="Choose whether to Redact, Frame, Highlight, Underline, Squiggly Underline, Strikeout or Remove")
     parser.add_argument('-p', '--pages', dest='pages', type=tuple,
                         help="Enter the pages to consider e.g.: [2,4]")
-    parser.add_argument('-o', '--output_file', dest='output_file', type=str
-                            , help="Enter a valid output file")
+    parser.add_argument('-o', '--output_file', dest='output_file',
+                        type=str, help="Enter a valid output file")
     args = vars(parser.parse_args())
 
     # Display The Command Line Arguments
@@ -403,8 +432,9 @@ def main():
 
     # for input_file in input_files:
     input_file = input_files
-        
-    print(f"For File:", colored(f"{os.path.basename(os.path.splitext(input_file)[0])}", "yellow"))
+
+    print(f"For File:", colored(
+        f"{os.path.basename(os.path.splitext(input_file)[0])}", "yellow"))
 
     heat_sheet = HeatSheet(input_file)
 
