@@ -152,10 +152,10 @@ class HeatSheet:
         for val in matched_values:
             matches_found += 1
             matching_val_areas = page.search_for(val)
-            distinct_line_y_values = set(val.y0 for val in matching_val_areas)
+            distinct_line_y_values = set(round(val.y0, 3) for val in matching_val_areas)
             for y0 in distinct_line_y_values:
                 line_areas = list(
-                    filter(lambda val: val.y0 == y0, matching_val_areas))
+                    filter(lambda val: round(val.y0, 3) == y0, matching_val_areas))
                 matching_val_area = self.__combine_area(line_areas)
                 self.__annotate_area(page, matching_val_area, action)
         return matches_found
