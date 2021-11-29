@@ -224,6 +224,7 @@ class HeatSheet:
         def from_string(cls, string, cuts):
 
             individual_swim = cls.individual_swim
+            cut_codes = ""
             if cuts:
                 cut_codes = "|".join(cuts)
                 individual_swim = f"{individual_swim}(?:{cut_codes})?\n?"
@@ -430,19 +431,18 @@ def main():
     if input_files == '':
         exit()
 
-    # for input_file in input_files:
-    input_file = input_files
+    for input_file in input_files:
 
-    print(f"For File:", colored(
-        f"{os.path.basename(os.path.splitext(input_file)[0])}", "yellow"))
+        print(f"For File:", colored(
+            f"{os.path.basename(os.path.splitext(input_file)[0])}", "yellow"))
 
-    heat_sheet = HeatSheet(input_file)
+        heat_sheet = HeatSheet(input_file)
 
-    if not teams:
-        teams = heat_sheet.teams
+        if not teams:
+            teams = heat_sheet.teams
 
-    for team in teams:
-        heat_sheet.highlight_team(team, pages, action)
+        for team in teams:
+            heat_sheet.highlight_team(team, pages, action)
 
 
 if __name__ == '__main__':
