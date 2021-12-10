@@ -199,7 +199,7 @@ class HeatSheet:
 
     class IndividualSwim():
 
-        age = r" \d+"
+        age = r" +\d+"
         name = r"[A-Z]\w*,\s[A-Z]\w*\s[A-Z]?"
         time = r"(?:(?:(?:\d*:)?\d{2}\.\d{2})|NT)"
         team = r"\w{1,5}(?=-)"
